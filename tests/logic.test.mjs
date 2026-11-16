@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   parseTweetUrl, parseCampaign, buildQuote, validateQuote, weightedLength,
-  checkSafety, intents, parseOembedHtml, cleanBrand,
+  checkSafety, intents, parseOembedHtml, cleanBrand, buildSearchQuery,
 } from "../web/logic.js";
 
 const NOW = new Date(2026, 10, 16, 12, 0);
@@ -132,4 +132,13 @@ test("intents", () => {
 test("oEmbed html", () => {
   const html = '<blockquote class="twitter-tweet"><p lang="ja" dir="ltr">抽選で&amp;当たる<br><a href="https://twitter.com/hashtag/x">#x</a> &#127873;</p>&mdash; Brand (@b) <a href="#">Nov</a></blockquote>';
   assert.equal(parseOembedHtml(html), "抽選で&当たる\n#x 🎁");
+});
+
+test("combined search query", () => {
+  const q = buildSearchQuery({
+    keywords: ["その場で当たる", "プレゼントキャンペーン", " "], required: ["フォロー", "RT"],
+    exclude: "-filter:replies", sinceDays: 7, now: NOW,
+  });
+  assert.equal(q, '("その場で当たる" OR "プレゼントキャンペーン") ("フォロー" OR RT) -filter:replies since:2026-11-09');
+  assert.equal(buildSearchQuery({ keywords: ["抽選で"] }), '"抽選で"');
 });

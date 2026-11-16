@@ -1,27 +1,39 @@
 // 懸賞応募アシスタント（スマホ用・データは端末内のlocalStorageに保存）
 import {
   parseTweetUrl, parseCampaign, buildQuote, validateQuote, weightedLength,
-  checkSafety, intents, parseOembedHtml, localIso,
+  checkSafety, intents, parseOembedHtml, localIso, buildSearchQuery,
 } from "./logic.js";
 
 // ================= 保存 =================
 const KEY = "kensho-v1";
-const DEFAULT_QUERIES = [
-  '"その場で当たる" (フォロー OR リポスト) -filter:replies',
-  '"プレゼントキャンペーン" フォロー リポスト -filter:replies',
-  '"抽選で" 名様 フォロー (リポスト OR いいね) -filter:replies',
-  '"引用リポスト" キャンペーン 名様 -filter:replies',
-];
+const DEFAULT_SETTINGS = {
+  dailyEntryLimit: 20, dailyFollowLimit: 30, totalFollowWarning: 4000,
+  // 検索：キーワードのどれか ＋ 応募方法ワードのどれか、を1回で検索する
+  searchKeywords: ["その場で当たる", "プレゼントキャンペーン", "抽選で", "名様にプレゼント", "キャンペーン実施中"],
+  searchRequired: ["フォロー", "リポスト", "RT", "いいね", "引用"],
+  searchExclude: "-filter:replies -filter:retweets -レシート",
+  searchSinceDays: 7,
+};
 const STATUS = { new: "未応募", entered: "応募済", skipped: "スキップ", won: "当選", lost: "落選" };
 
 function freshStore() {
   return {
     version: 1, nextId: 1, campaigns: [], follows: {}, whitelist: [], blacklist: [],
-    settings: { dailyEntryLimit: 20, dailyFollowLimit: 30, totalFollowWarning: 4000, searchQueries: DEFAULT_QUERIES },
+    settings: { ...DEFAULT_SETTINGS },
   };
 }
 let store;
-try { store = { ...freshStore(), ...JSON.parse(localStorage.getItem(KEY) || "{}") }; } catch { store = freshStore(); }
+function loadStore(data) {
+  const s = { ...freshStore(), ...data };
+  s.settings = { ...DEFAULT_SETTINGS, ...(data.settings || {}) }; // 新しい設定項目を補う
+  delete s.settings.searchQueries; // 旧バージョンの設定
+  return s;
+}
+try { store = loadStore(JSON.parse(localStorage.getItem(KEY) || "{}")); } catch { store = freshStore(); }
+const searchQuery = () => buildSearchQuery({
+  keywords: store.settings.searchKeywords, required: store.settings.searchRequired,
+  exclude: store.settings.searchExclude, sinceDays: store.settings.searchSinceDays,
+});
 const save = () => localStorage.setItem(KEY, JSON.stringify(store));
 if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});
 
@@ -135,9 +147,9 @@ function viewHome() {
   return `
   <section class="card">
     <h2>① 懸賞ツイートを探す</h2>
-    <p class="note">Xの検索が開きます。気になるツイートで「共有 → リンクをコピー」してください。</p>
-    <div class="search-list">${store.settings.searchQueries.map((q) =>
-      `<a class="btn secondary" href="${esc(intents.search(q))}" target="_blank" rel="noopener">🔍 ${esc(q)}</a>`).join("")}</div>
+    <a class="btn big" href="${esc(intents.search(searchQuery()))}" target="_blank" rel="noopener">🔍 懸賞ツイートをまとめて検索</a>
+    <p class="note">登録したキーワード（${esc(store.settings.searchKeywords.join("・"))}）のどれかを含む、直近${store.settings.searchSinceDays}日の懸賞ツイートを新しい順に表示します。
+      気になるツイートで「共有 → リンクをコピー」してください。キーワードは「設定」で変更できます。</p>
   </section>
   <section class="card">
     <h2>② URLを貼り付けて解析</h2>
@@ -313,9 +325,13 @@ function viewSettings() {
       <label>1日の応募数の上限 <input type="number" name="dailyEntryLimit" value="${s.dailyEntryLimit}" min="1"></label>
       <label>1日のフォロー数の上限 <input type="number" name="dailyFollowLimit" value="${s.dailyFollowLimit}" min="1"></label>
       <label>フォロー総数の警告ライン <input type="number" name="totalFollowWarning" value="${s.totalFollowWarning}" min="1"></label>
-      <h3>検索条件（1行に1つ）</h3>
-      <p class="note">例：<code>filter:verified</code>（認証済みのみ）、<code>-filter:replies</code>（返信を除く）</p>
-      <textarea name="searchQueries" rows="5">${esc(s.searchQueries.join("\n"))}</textarea>
+      <h3>まとめて検索の条件</h3>
+      <label>キーワード（1行に1つ・どれかを含む）<textarea name="searchKeywords" rows="5">${esc(s.searchKeywords.join("\n"))}</textarea></label>
+      <label>応募方法ワード（1行に1つ・どれかを含む。空なら条件なし）<textarea name="searchRequired" rows="3">${esc(s.searchRequired.join("\n"))}</textarea></label>
+      <label>除外・追加条件 <input type="text" name="searchExclude" value="${esc(s.searchExclude)}"></label>
+      <p class="note">例：<code>-filter:replies</code>（返信を除く）、<code>filter:verified</code>（認証済みのみ）、<code>-LINE</code>（LINEを含むものを除く）</p>
+      <label>何日前までのツイートを探すか <input type="number" name="searchSinceDays" value="${s.searchSinceDays}" min="0"></label>
+      <p class="note">検索内容：<code>${esc(searchQuery())}</code></p>
       <h3>公式アカウント（ホワイトリスト）</h3>
       <p class="note">@なしのIDを1行に1つ。</p>
       <textarea name="whitelist" rows="4">${esc(store.whitelist.join("\n"))}</textarea>
@@ -375,10 +391,14 @@ document.addEventListener("submit", (e) => {
   if (e.target.id === "add-form") handleAdd(f.get("url"), f.get("text"));
   if (e.target.id === "settings-form") {
     const num = (k) => Math.max(1, parseInt(f.get(k), 10) || store.settings[k]);
+    const lines = (k) => String(f.get(k) || "").split("\n").map((q) => q.trim()).filter(Boolean);
     const list = (k) => [...new Set(String(f.get(k)).split(/\s+/).map((h) => h.replace(/^@/, "").toLowerCase()).filter(Boolean))];
     store.settings = {
       dailyEntryLimit: num("dailyEntryLimit"), dailyFollowLimit: num("dailyFollowLimit"), totalFollowWarning: num("totalFollowWarning"),
-      searchQueries: String(f.get("searchQueries")).split("\n").map((q) => q.trim()).filter(Boolean),
+      searchKeywords: lines("searchKeywords"),
+      searchRequired: lines("searchRequired"),
+      searchExclude: String(f.get("searchExclude") || "").trim(),
+      searchSinceDays: Math.max(0, parseInt(f.get("searchSinceDays"), 10) || 0),
     };
     store.whitelist = list("whitelist");
     store.blacklist = list("blacklist");
@@ -461,7 +481,7 @@ document.addEventListener("change", async (e) => {
     const data = JSON.parse(await e.target.files[0].text());
     if (!Array.isArray(data.campaigns)) throw new Error();
     if (!confirm(`${data.campaigns.length}件のデータで上書きします。よろしいですか？`)) return;
-    store = { ...freshStore(), ...data }; save();
+    store = loadStore(data); save();
     go("#/", { type: "info", msg: "読み込みました" });
   } catch { alert("バックアップファイルを読み込めませんでした"); }
 });

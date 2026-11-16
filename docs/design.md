@@ -27,7 +27,7 @@
 - Android：manifest の `share_target` により、X の「共有」から直接受け取れる
 
 ## 3. 処理フロー
-1. **探す**：設定の検索条件で `x.com/search` を開く
+1. **探す**：設定のキーワードを `buildSearchQuery()` で1本の OR 検索にまとめ、`x.com/search`（新しい順・直近N日）を開く
 2. **登録**：URL を貼る → oEmbed で本文取得（失敗時は手動で貼り付け）
 3. **解析**：`parseCampaign()` で条件を抽出し、対象外なら `skipped`
 4. **判定**：`checkSafety()` で `safe` / `unknown` / `danger`。`danger` は応募ボタンを出さない

@@ -242,6 +242,22 @@ export const intents = {
   search: (q) => `https://x.com/search?${qs({ q, f: "live" })}`,
 };
 
+// ---------------- 検索 ----------------
+/** 複数キーワードを OR でまとめた1本のX検索クエリを作る。 */
+export function buildSearchQuery({ keywords = [], required = [], exclude = "", sinceDays = 0, now = new Date() }) {
+  const group = (words) => {
+    const ws = words.map((w) => w.trim()).filter(Boolean).map((w) => (/^[\w:-]+$/.test(w) ? w : `"${w.replace(/"/g, "")}"`));
+    if (!ws.length) return "";
+    return ws.length === 1 ? ws[0] : `(${ws.join(" OR ")})`;
+  };
+  const parts = [group(keywords), group(required), exclude.trim()];
+  if (sinceDays > 0) {
+    const d = new Date(now.getTime() - sinceDays * 864e5);
+    parts.push(`since:${localIso(d).slice(0, 10)}`);
+  }
+  return parts.filter(Boolean).join(" ");
+}
+
 // ---------------- oEmbed ----------------
 const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", mdash: "—" };
 export function parseOembedHtml(html) {
