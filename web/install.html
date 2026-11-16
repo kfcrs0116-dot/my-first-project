@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>X上でワンタップ応募する設定</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header><a class="brand" href="./">🎁 懸賞アシスタント</a></header>
+<main>
+<section class="card">
+  <h2>X上でワンタップ応募する設定</h2>
+  <p>この設定をすると、<b>Safari（Android は Firefox）で X を開くだけ</b>で、懸賞ツイートの下に「🎁 懸賞」の枠と<b>「応募する」ボタン</b>が自動で表示されます。URL のコピーや貼り付けは不要です。</p>
+  <ul class="note">
+    <li>ボタンを押すと、そのツイートに必要な「フォロー・いいね・リポスト」を順番に実行します</li>
+    <li>引用が必要な場合は、指定キーワード入りの文が入力された投稿画面を開きます。内容を確認して「ポスト」を押してください</li>
+    <li>LINE登録・DM・購入などが必要な懸賞や、詐欺の疑いがあるものにはボタンを出しません</li>
+    <li>画面左下の 🎁 ボタンから「まとめて検索」と設定ができます</li>
+    <li>無料です。X の API やサーバーは使いません</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>iPhone の場合</h2>
+  <ol>
+    <li>App Store で無料アプリ <b>「Userscripts」</b>（開発者: Justin Wasack）をインストール</li>
+    <li>「設定」アプリ → 「アプリ」→「Safari」→「機能拡張」→「Userscripts」をオンにし、<b>x.com を「許可」</b>にする</li>
+    <li>Safari で下のボタンを開く → アドレスバーの「ぁあ」（または 🧩）→「Userscripts」→ <b>インストール</b></li>
+  </ol>
+  <a class="btn big" href="kensho.user.js">スクリプトを開く</a>
+  <p class="note">※ <b>X アプリではなく Safari で x.com を開いて</b>使います。リンクから開くと X アプリに飛ぶ場合は、Safari のアドレスバーに「x.com」と直接入力してください（ブックマーク推奨）。</p>
+</section>
+
+<section class="card">
+  <h2>Android の場合</h2>
+  <ol>
+    <li>Google Play で <b>Firefox</b> をインストール</li>
+    <li>Firefox のメニュー →「拡張機能」→ <b>Tampermonkey</b> を追加</li>
+    <li>Firefox で下のボタンを開く → Tampermonkey の画面で <b>インストール</b></li>
+  </ol>
+  <a class="btn big" href="kensho.user.js">スクリプトを開く</a>
+  <p class="note">※ Firefox で x.com を開いて使います。</p>
+</section>
+
+<section class="card">
+  <h2>注意</h2>
+  <ul class="note">
+    <li>ボタンを押したときだけ動きます。勝手に応募することはありません</li>
+    <li>1日の応募数・フォロー数に上限があります（初期値：応募20件・フォロー30件。🎁 → 設定で変更可）</li>
+    <li>スクリプトでボタンを押す方式のため、X の画面が変わると一部の操作がうまくいかないことがあります。✗ が出た操作は手動で行ってください</li>
+    <li>X は自動化された操作を制限しています。短時間に大量に応募すると、凍結などの制限を受けるおそれがあります。上限は控えめにしてください</li>
+    <li>新しい版が出たら、このページの「スクリプトを開く」からもう一度インストールすると更新できます（Tampermonkey は自動で更新されます）</li>
+  </ul>
+</section>
+</main>
+</body>
+</html>
