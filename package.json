@@ -1,0 +1,9 @@
+{
+  "name": "kensho-assistant",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/logic.test.mjs",
+    "start": "npx --yes serve web -l 8080"
+  }
+}
