@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h2>フォロー整理</h2>
+  <p class="note">締切から14日以上たち、当選していないキャンペーンでフォローしたアカウントです（「公式として登録」したアカウントは除外）。
+    当選連絡はDMで届くことが多いので、発表前には解除しないでください。<br>
+    一括の自動解除は規約違反のため、プロフィールを開いて1件ずつ解除し、「解除した」を押してください。</p>
+  {% if not rows %}<p class="note">整理候補はありません。</p>{% endif %}
+  <table class="grid">
+    {% for r in rows %}
+      <tr>
+        <td><a href="{{ profile_url(r.handle) }}" target="_blank" rel="noopener">@{{ r.handle }}</a></td>
+        <td>締切 {{ r.deadline[:10] }}</td>
+        <td><form method="post" action="{{ url_for('unfollowed', handle=r.handle) }}">
+          <button class="btn secondary">解除した</button></form></td>
+      </tr>
+    {% endfor %}
+  </table>
+</section>
+{% endblock %}

@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}懸賞応募アシスタント{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header>
+  <a class="brand" href="{{ url_for('index') }}">🎁 懸賞アシスタント</a>
+  <nav>
+    <a href="{{ url_for('index') }}">ホーム</a>
+    <a href="{{ url_for('history') }}">履歴</a>
+    <a href="{{ url_for('follows') }}">フォロー整理</a>
+    <a href="{{ url_for('settings') }}">設定</a>
+  </nav>
+</header>
+<div class="counter">
+  今日の応募 <b>{{ counts.entries }}</b>/{{ limits.entries }}
+  ・ フォロー <b>{{ counts.follows }}</b>/{{ limits.follows }}
+  ・ フォロー中 <b {% if counts.total_follows >= limits.total_follow_warning %}class="warn"{% endif %}>{{ counts.total_follows }}</b>
+</div>
+<main>
+  {% for cat, msg in get_flashed_messages(with_categories=true) %}
+    <div class="flash {{ cat }}">{{ msg }}</div>
+  {% endfor %}
+  {% if counts.total_follows >= limits.total_follow_warning %}
+    <div class="flash error">フォロー数が多くなっています。「フォロー整理」で終了したキャンペーンのアカウントを解除しましょう（Xにはフォロー数の上限があります）。</div>
+  {% endif %}
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>

@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h2>応募履歴</h2>
+  <div class="row filters">
+    <a class="btn secondary {% if not current %}active{% endif %}" href="{{ url_for('history') }}">すべて</a>
+    {% for k, v in STATUS_LABELS.items() %}
+      <a class="btn secondary {% if current == k %}active{% endif %}" href="{{ url_for('history', status=k) }}">{{ v }}</a>
+    {% endfor %}
+  </div>
+  <table class="grid">
+    <tr><th>主催</th><th>賞品</th><th>締切</th><th>状態</th></tr>
+    {% for c in rows %}{% set p = parsed_of(c) %}
+      <tr>
+        <td><a href="{{ url_for('campaign', cid=c.id) }}">@{{ c.handle }}</a></td>
+        <td>{{ (p.prize or c.text)[:30] }}</td>
+        <td>{{ c.deadline.replace('T', ' ') if c.deadline else '-' }}</td>
+        <td><span class="tag {{ c.status }}">{{ STATUS_LABELS[c.status] }}</span></td>
+      </tr>
+    {% endfor %}
+  </table>
+</section>
+{% endblock %}
