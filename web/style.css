@@ -41,3 +41,9 @@ table.kv td, table.grid td, table.grid th { padding: 6px 4px; border-bottom: 1px
 ul.list { list-style: none; padding: 0; margin: 0; }
 ul.list li a { display: block; padding: 10px 4px; border-bottom: 1px solid #f0f0f0; color: inherit; text-decoration: none; }
 details summary { cursor: pointer; font-size: 14px; color: #1d6fd6; margin-bottom: 6px; }
+.row.nowrap { flex-wrap: nowrap; }
+.row.nowrap input { margin: 0; }
+.btn.action.disabled { background: #e3e5e8; color: #8b949e; pointer-events: none; }
+button.btn:disabled { opacity: .6; }
+header nav a { margin-left: 10px; }
+.row.nowrap .btn { white-space: nowrap; flex-shrink: 0; }
