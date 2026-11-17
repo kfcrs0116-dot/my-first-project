@@ -145,6 +145,11 @@ function header() {
 function viewHome() {
   const pending = store.campaigns.filter((c) => c.status === "new").reverse();
   return `
+  <section class="card highlight">
+    <h2>📲 X上でワンタップ応募</h2>
+    <p class="note">設定すると、Xを見ているだけで懸賞ツイートに「応募する」ボタンが出ます。URLの貼り付けは不要です。</p>
+    <a class="btn" href="install.html">設定方法を見る</a>
+  </section>
   <section class="card">
     <h2>① 懸賞ツイートを探す</h2>
     <a class="btn big" href="${esc(intents.search(searchQuery()))}" target="_blank" rel="noopener">🔍 懸賞ツイートをまとめて検索</a>

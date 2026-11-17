@@ -48,3 +48,4 @@ header nav a { margin-left: 10px; }
 .btn.big { display: block; text-align: center; font-size: 18px; padding: 16px; margin: 4px 0 10px; }
 input[type=text] { width: 100%; padding: 10px; font-size: 16px; border: 1px solid #d0d7de; border-radius: 8px; margin: 4px 0 8px; }
 code { word-break: break-all; }
+.card.highlight { border: 2px solid #ff9800; background: #fff8ef; }

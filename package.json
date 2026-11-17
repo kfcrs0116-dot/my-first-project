@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/logic.test.mjs",
-    "start": "npx --yes serve web -l 8080"
+    "build": "node scripts/build-userscript.mjs && node --check web/kensho.user.js",
+    "test": "node --test tests/logic.test.mjs && npm run build --silent",
+    "test:e2e": "npm run build --silent && node tests/userscript.e2e.cjs",
+    "start": "npm run build --silent && npx --yes serve web -l 8080"
   }
 }

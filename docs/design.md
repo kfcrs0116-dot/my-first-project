@@ -26,6 +26,20 @@
 - 公開先：GitHub Pages（`.github/workflows/pages.yml`）または Netlify / Cloudflare Pages の無料枠
 - Android：manifest の `share_target` により、X の「共有」から直接受け取れる
 
+### 2.1 ユーザースクリプト（X上でワンタップ応募）
+```
+userscript/main.js + web/logic.js ──(scripts/build-userscript.mjs)──→ web/kensho.user.js
+```
+- x.com 上で `article[data-testid="tweet"]` を監視し、本文（`tweetText`）・投稿者（`User-Name`）・ツイートID（時刻リンク）・認証マーク・省略の有無を読み取る
+- `parseCampaign()` で懸賞と判定したツイートに「🎁 懸賞」枠を挿入。対象外・危険・締切切れ・省略表示はボタンを出さない
+- 「応募する」を押すと、その1件だけを順に処理（各操作の間に0.7〜1.6秒の間隔）
+  - フォロー（主催者）：`caret` メニュー →「フォロー」項目
+  - いいね：`like` → `unlike` になれば成功
+  - リポスト：`retweet` → `retweetConfirm`
+  - 引用：`retweet` メニュー →「引用」→ `tweetTextarea_0` に文を入力（投稿は本人が押す。入力できなければクリップボードにコピー）
+- 結果を ✓ / ✗ で表示し、x.com の localStorage（`kensho-us-v1`）に記録。1日の応募数・フォロー数の上限を適用
+- `tests/mock-x.html` と `tests/userscript.e2e.cjs` で、X の画面構造を模したページで動作確認する
+
 ## 3. 処理フロー
 1. **探す**：設定のキーワードを `buildSearchQuery()` で1本の OR 検索にまとめ、`x.com/search`（新しい順・直近N日）を開く
 2. **登録**：URL を貼る → oEmbed で本文取得（失敗時は手動で貼り付け）
