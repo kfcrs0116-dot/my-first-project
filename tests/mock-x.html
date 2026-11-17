@@ -10,74 +10,107 @@ article{border-bottom:1px solid #ddd;padding:8px}
 </style></head>
 <body>
 <!--
-  X（x.com）のツイート表示を模したテスト用ページ。
-  data-testid は 2026年時点の X の実画面と同じ名前を使っている（実画面の変更で動かなくなる可能性がある）。
+  X（x.com）の画面を模したテスト用ページ。tests/userscript.e2e.cjs から http で開く。
+  data-testid は X の実画面と同じ名前を使っている（実画面の変更で動かなくなる可能性がある）。
+  ・本文中の @リンクを押すとプロフィール画面に切り替わる（X と同じく画面遷移でツイートの表示は作り直される）
 -->
-<div id="timeline"></div>
+<div data-testid="primaryColumn" id="col"></div>
 <script>
 const tweets = [
-  { id: "111", handle: "juice_jp", name: "白桃ジュース【公式】", verified: true,
-    text: "🎉新発売記念キャンペーン🎉\n抽選で50名様に新商品セットをプレゼント！\n▼応募方法\n1. @juice_jp をフォロー\n2. このポストにいいね\n3. #白桃ジュースで当てよう をつけて引用リポスト\n期間：2026年11月16日〜2026年12月5日" },
-  { id: "222", handle: "snack_co", name: "スナック", verified: false,
-    text: "＼その場で当たる／\n@snack_co をフォロー＆リポストで抽選で100名様\n12/20まで" },
-  { id: "333", handle: "line_cp", name: "LINE懸賞", verified: false,
-    text: "その場で当たる！\n@line_cp をフォローしてLINE友だち追加で応募" },
-  { id: "444", handle: "long_brand", name: "Long", verified: true, truncated: true,
-    text: "プレゼントキャンペーン！抽選で10名様に…" },
+  { id: "111", handle: "FENNEL_official", name: "FENNEL", verified: true,
+    text: "FENNEL HOTELAVA\nTHANK YOU GIVEAWAY\n\n感謝の気持ちを込めて、以下の2点をセットで抽選で2名様にプレゼント\n\n【応募方法】\n① 本ポストをリポスト\n② @hotelloversjp、@FENNEL_official をフォロー\n\n【応募期限】\n11/20（金）23:59まで" },
+  { id: "222", handle: "akiko_lawson", name: "ローソン", verified: true,
+    text: "盛りすぎ！チャレンジキャンペーン♪\n\n① @akiko_lawson をフォロー✨\n② この投稿に「ローソン盛りすぎチャレンジ」とコメントを付けて引用ポスト\n③ 抽選で1名様にQUOカードPay1万円分が当たる🎁" },
+  { id: "333", handle: "toshiba_life", name: "東芝", verified: true,
+    text: "📢ご応募は　東芝ライフスタイル公式 Instagramから！\n\n新発売の単機能レンジ\n「WarM(ウォーム)」\nプレゼントキャンペーン開催!" },
+  { id: "444", handle: "img_brand", name: "画像ブランド", verified: true,
+    text: "冬のプレゼントキャンペーン🎁\n詳しい応募方法は画像をチェック！" },
   { id: "555", handle: "someone", name: "一般人", verified: false, text: "今日のランチはカレー" },
 ];
+const st = {};                 // ツイートごとの いいね・リポスト状態
+const following = new Set();  // フォロー中
 const log = [];
-const tl = document.getElementById("timeline");
-for (const t of tweets) {
-  const a = document.createElement("article");
-  a.setAttribute("data-testid", "tweet");
-  a.innerHTML = `
-    <div data-testid="User-Name"><a href="/${t.handle}"><span>${t.name}</span>${t.verified ? '<svg data-testid="icon-verified"></svg>' : ""}</a>
-      <a href="/${t.handle}">@${t.handle}</a> <a href="/${t.handle}/status/${t.id}"><time>1時間</time></a></div>
-    <button data-testid="caret">…</button>
-    <div data-testid="tweetText" lang="ja"></div>
-    ${t.truncated ? '<a data-testid="tweet-text-show-more-link" href="#">さらに表示</a>' : ""}
-    <div role="group"><button data-testid="reply">💬</button><button data-testid="retweet">🔁</button><button data-testid="like">♡</button></div>`;
-  a.querySelector('[data-testid="tweetText"]').innerText = t.text;
-  // 本物のXはツイート全体のクリックで詳細へ移動（いいね等のボタンは除く）
-  a.addEventListener("click", (e) => { if (!e.target.closest("button[data-testid]")) log.push("navigate:" + t.id); });
-  tl.appendChild(a);
+const col = document.getElementById("col");
+
+function textHtml(t) {
+  return t.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]))
+    .replace(/@([A-Za-z0-9_]{1,15})/g, '<a href="/$1" class="mention">@$1</a>').replace(/\n/g, "<br>");
 }
+function renderTimeline() {
+  col.innerHTML = "";
+  for (const t of tweets) {
+    const s = st[t.id] || (st[t.id] = {});
+    const a = document.createElement("article");
+    a.setAttribute("data-testid", "tweet");
+    a.innerHTML = `
+      <div data-testid="User-Name"><a href="/${t.handle}"><span>${t.name}</span>${t.verified ? '<svg data-testid="icon-verified"></svg>' : ""}</a>
+        <a href="/${t.handle}">@${t.handle}</a> <a href="/${t.handle}/status/${t.id}"><time>1時間</time></a></div>
+      <button data-testid="caret">…</button>
+      <div data-testid="tweetText" lang="ja">${textHtml(t.text)}</div>
+      <div role="group"><button data-testid="reply">💬</button>
+        <button data-testid="${s.rt ? "unretweet" : "retweet"}">🔁</button><button data-testid="${s.like ? "unlike" : "like"}">♡</button></div>`;
+    // 本物のXはツイート全体のクリックで詳細へ移動（いいね等のボタン・リンクは除く）
+    a.addEventListener("click", (e) => { if (!e.target.closest("button[data-testid], a")) log.push("navigate:" + t.id); });
+    col.appendChild(a);
+  }
+}
+function renderProfile(handle) {
+  col.innerHTML = `<div><h2>@${handle}</h2>
+    <button data-testid="9${handle.length}-${following.has(handle.toLowerCase()) ? "unfollow" : "follow"}" id="pf">フォロー</button></div>
+    <div data-testid="UserCell"><button data-testid="77-follow">おすすめユーザーをフォロー</button></div>`;
+  col.querySelector("#pf").addEventListener("click", (e) => {
+    if (e.target.dataset.testid.endsWith("-follow")) {
+      following.add(handle.toLowerCase()); log.push("follow:" + handle);
+      setTimeout(() => { e.target.dataset.testid = e.target.dataset.testid.replace(/-follow$/, "-unfollow"); }, 200);
+    }
+  });
+  col.querySelector('[data-testid="UserCell"] button').addEventListener("click", () => log.push("WRONG-follow"));
+}
+function route() {
+  const m = /^\/([A-Za-z0-9_]{1,15})$/.exec(location.pathname);
+  if (m && m[1] !== "mock-x") renderProfile(m[1]); else renderTimeline();
+}
+window.addEventListener("popstate", () => setTimeout(route, 150));
+document.addEventListener("click", (e) => {
+  const link = e.target.closest("a.mention");
+  if (link) { e.preventDefault(); history.pushState(null, "", link.getAttribute("href")); setTimeout(route, 150); }
+});
+
 function closeMenus() { document.querySelectorAll('[role="menu"]').forEach((m) => m.remove()); }
 function openMenu(html) { closeMenus(); const m = document.createElement("div"); m.setAttribute("role", "menu"); m.innerHTML = html; document.body.appendChild(m); return m; }
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenus(); });
-const following = new Set();
-tl.addEventListener("click", (e) => {
-  const btn = e.target.closest("button[data-testid]");
+col.addEventListener("click", (e) => {
+  const btn = e.target.closest("article button[data-testid]");
   if (!btn) return;
   e.stopPropagation();
   const art = btn.closest("article");
   const handle = art.querySelector('[data-testid="User-Name"] a').getAttribute("href").slice(1);
   const id = [...art.querySelectorAll("a")].find((x) => x.querySelector("time")).getAttribute("href").split("/").pop();
   const tid = btn.dataset.testid;
-  if (tid === "like") { btn.dataset.testid = "unlike"; log.push("like:" + id); }
+  if (tid === "like") { btn.dataset.testid = "unlike"; st[id].like = true; log.push("like:" + id); }
   if (tid === "retweet" || tid === "unretweet") {
     const m = openMenu(`${tid === "retweet" ? '<div role="menuitem" data-testid="retweetConfirm">リポスト</div>' : '<div role="menuitem" data-testid="unretweetConfirm">リポストを取り消す</div>'}
       <a href="/compose/post" role="menuitem">引用</a>`);
-    m.querySelector('[data-testid="retweetConfirm"]')?.addEventListener("click", () => { btn.dataset.testid = "unretweet"; log.push("repost:" + id); closeMenus(); });
-    m.querySelector('a').addEventListener("click", (ev) => {
+    m.querySelector('[data-testid="retweetConfirm"]')?.addEventListener("click", () => { btn.dataset.testid = "unretweet"; st[id].rt = true; log.push("repost:" + id); closeMenus(); });
+    m.querySelector("a").addEventListener("click", (ev) => {
       ev.preventDefault(); closeMenus();
       const c = document.createElement("div"); c.id = "composer";
       c.innerHTML = '<div data-testid="tweetTextarea_0" contenteditable="true" style="min-height:80px;border:1px solid #ccc"></div><button data-testid="tweetButton">ポストする</button>';
       document.body.appendChild(c);
       c.querySelector('[data-testid="tweetButton"]').addEventListener("click", () => {
-        log.push("quote:" + id + ":" + c.querySelector('[data-testid="tweetTextarea_0"]').textContent); c.remove();
+        log.push("quote:" + id + ":" + c.querySelector('[data-testid="tweetTextarea_0"]').innerText); c.remove();
       });
     });
   }
   if (tid === "caret") {
-    const f = following.has(handle);
+    const f = following.has(handle.toLowerCase());
     const m = openMenu(`<div role="menuitem">@${handle}さんをミュート</div><div role="menuitem">@${handle}さんをリストに追加/削除</div>
       <div role="menuitem" class="fol">${f ? `@${handle}さんのフォローを解除` : `@${handle}さんをフォロー`}</div>`);
-    m.querySelector(".fol").addEventListener("click", () => { if (!f) { following.add(handle); log.push("follow:" + handle); } closeMenus(); });
+    m.querySelector(".fol").addEventListener("click", () => { if (!f) { following.add(handle.toLowerCase()); log.push("follow:" + handle); } closeMenus(); });
   }
 });
 window.__log = log;
+route();
 </script>
 </body>
 </html>

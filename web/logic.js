@@ -25,11 +25,15 @@ const UNSUPPORTED = [
   ["外部フォーム・アンケート", /応募フォーム|フォームから|フォームより|アンケート.{0,4}回答/],
   ["購入・レシート応募", /レシート|購入(して|者|いただ|された|の上)|対象商品を購入/],
   ["会員登録", /会員登録/],
+  ["Instagram・TikTokなど他サービスでの応募", /(Instagram|インスタ|TikTok|ティックトック|YouTube).{0,20}(から|で|にて)の?ご?応募|ご?応募は.{0,25}(Instagram|インスタ|TikTok|ティックトック|YouTube)/i],
 ];
 
 const QUOTE_RE = /引用(RT|リツイート|リポスト|ポスト|して|で)?/gi;
 const REPOST_RE = /RT|リツイート|リポスト|repost/i;
-const PLAIN_KEYWORD_RE = /[「『]([^」』]{1,30})[」』](と|を)(入れ|書い|つけ|付け|含め|添え|記載)/g;
+// 引用・コメントに入れる指定文：「〇〇」とコメント／「〇〇」と入れて／「〇〇」を付けて など
+// （「〇〇」をコメントして は「お題」なので対象外）
+const PLAIN_KEYWORD_RE = /[「『]([^」』]{1,40})[」』](?:と(?:いう)?(?:コメント|ひとこと|一言|一緒|入れ|書|つけ|付け|添え|記入)|を(?:入れ|書き込|書いて|つけ|付け|含め|添え|記載|記入))/g;
+const ACTION_WORDS_RE = /^(いいね|リポスト|リツイート|RT|フォロー|引用|引用リポスト|引用ポスト)$/i;
 const THEME_RE = /(教えて|お答え|回答して|コメントして|聞かせて)/;
 const DATE_FULL_RE = /(20\d{2})[/年.\-](\d{1,2})[/月.\-](\d{1,2})日?/g;
 const DATE_MD_RE = /(\d{1,2})[/月](\d{1,2})日?/g;
@@ -81,6 +85,29 @@ function parseDeadline(text, now) {
   return valid.length ? valid[valid.length - 1] : null;
 }
 
+/** 引用に必要なハッシュタグ・指定文・お題を取り出す（手動で「引用」を選んだときにも使う） */
+export function extractQuoteRequirements(rawText) {
+  const text = (rawText || "").normalize("NFKC");
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !NOTICE_LINE_RE.test(l));
+  const tagLines = lines.filter((l) => /引用|コメント|つけて|付けて|を付け|をつけ|入れて|添えて|ハッシュタグ|書いて/.test(l));
+  let tags = tagLines.flatMap((l) => [...l.matchAll(HASHTAG_RE)].map((m) => m[1]));
+  if (!tags.length) tags = [...text.matchAll(HASHTAG_RE)].map((m) => m[1]);
+  const keywords = [];
+  for (const m of text.matchAll(PLAIN_KEYWORD_RE)) {
+    const k = m[1].trim();
+    if (!k || ACTION_WORDS_RE.test(k)) continue;
+    if (/^#\S+$/.test(k)) tags.push(k.slice(1)); // 「#〇〇」は ハッシュタグとして扱う
+    else keywords.push(k);
+  }
+  const themeLine = lines.find((l) => THEME_RE.test(l));
+  return { quoteHashtags: unique(tags), quoteKeywords: unique(keywords), theme: themeLine ? themeLine.slice(0, 80) : null };
+}
+
+/** 本文中の @アカウント（重複なし） */
+export function mentionedHandles(rawText) {
+  return unique([...(rawText || "").normalize("NFKC").matchAll(HANDLE_RE)].map((m) => m[1]));
+}
+
 export function parseCampaign(rawText, organizer = null, now = new Date()) {
   const text = (rawText || "").normalize("NFKC");
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
@@ -120,15 +147,7 @@ export function parseCampaign(rawText, organizer = null, now = new Date()) {
     r.follow = unique(handles);
   }
 
-  if (r.quote) {
-    const tagLines = entryLines.filter((l) => /引用|つけて|付けて|を付け|をつけ|入れて|ハッシュタグ/.test(l));
-    let tags = tagLines.flatMap((l) => [...l.matchAll(HASHTAG_RE)].map((m) => m[1]));
-    if (!tags.length) tags = [...text.matchAll(HASHTAG_RE)].map((m) => m[1]);
-    r.quoteHashtags = unique(tags);
-    r.quoteKeywords = unique([...text.matchAll(PLAIN_KEYWORD_RE)].map((m) => m[1]));
-    const themeLine = entryLines.find((l) => THEME_RE.test(l));
-    if (themeLine) r.theme = themeLine.slice(0, 80);
-  }
+  if (r.quote) Object.assign(r, extractQuoteRequirements(text));
 
   r.deadline = parseDeadline(text, now);
   const w = WINNERS_RE.exec(text);

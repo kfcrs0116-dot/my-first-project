@@ -33,7 +33,9 @@ userscript/main.js + web/logic.js ──(scripts/build-userscript.mjs)──→ 
 - x.com 上で `article[data-testid="tweet"]` を監視し、本文（`tweetText`）・投稿者（`User-Name`）・ツイートID（時刻リンク）・認証マーク・省略の有無を読み取る
 - `parseCampaign()` で懸賞と判定したツイートに「🎁 懸賞」枠を挿入。対象外・危険・締切切れ・省略表示はボタンを出さない
 - 「応募する」を押すと、その1件だけを順に処理（各操作の間に0.7〜1.6秒の間隔）
-  - フォロー（主催者）：`caret` メニュー →「フォロー」項目
+  - フォロー（投稿者）：`caret` メニュー →「フォロー」項目
+  - フォロー（投稿者以外）：本文の @リンクでプロフィールへ移動 → `{userId}-follow` ボタン（おすすめユーザー欄 `UserCell` は除外）→ `history.back()` で戻り、ツイートを探し直して続行
+  - 必要な操作は枠内のボタンで選び直せる（本文から読み取れないとき＝画像に条件がある場合など）。選んだ内容は記録に保存
   - いいね：`like` → `unlike` になれば成功
   - リポスト：`retweet` → `retweetConfirm`
   - 引用：`retweet` メニュー →「引用」→ `tweetTextarea_0` に文を入力（投稿は本人が押す。入力できなければクリップボードにコピー）

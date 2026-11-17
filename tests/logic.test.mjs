@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   parseTweetUrl, parseCampaign, buildQuote, validateQuote, weightedLength,
-  checkSafety, intents, parseOembedHtml, cleanBrand, buildSearchQuery,
+  checkSafety, intents, parseOembedHtml, cleanBrand, buildSearchQuery, extractQuoteRequirements, mentionedHandles,
 } from "../web/logic.js";
 
 const NOW = new Date(2026, 10, 16, 12, 0);
@@ -141,4 +141,71 @@ test("combined search query", () => {
   });
   assert.equal(q, '("その場で当たる" OR "プレゼントキャンペーン") ("フォロー" OR RT) -filter:replies since:2026-11-09');
   assert.equal(buildSearchQuery({ keywords: ["抽選で"] }), '"抽選で"');
+});
+
+// ---- 実際の懸賞ツイート（ユーザー提供のスクリーンショットより） ----
+const FENNEL = `FENNEL HOTELAVA
+THANK YOU GIVEAWAY
+
+この1年間、FENNEL HOTELAVAを応援してくださった皆さまへ。
+
+感謝の気持ちを込めて、以下の2点をセットで抽選で2名様にプレゼント
+
+◼️ お好きなカラコン 左右各1箱
+◼️ Nintendo Switch 2
+
+【応募方法】
+① 本ポストをリポスト
+② @hotelloversjp、@FENNEL_official をフォロー
+
+【応募期限】
+11/20（金）23:59まで`;
+
+const LAWSON = `盛りすぎ！チャレンジキャンペーン♪
+
+① @akiko_lawson をフォロー✨
+② この投稿に「ローソン盛りすぎチャレンジ」とコメントを付けて引用ポスト
+③ 抽選で1名様にQUOカードPay1万円分が当たる🎁`;
+
+const TOSHIBA = `📢ご応募は　東芝ライフスタイル公式 Instagramから！
+
+新発売の単機能レンジ
+「WarM(ウォーム)」
+プレゼントキャンペーン開催!
+
+キャンペーン詳細・応募はこちら↓`;
+
+test("real: two accounts to follow", () => {
+  const r = parseCampaign(FENNEL, "FENNEL_official", NOW);
+  assert.ok(r.supported && r.repost && !r.quote);
+  assert.deepEqual(r.follow, ["hotelloversjp", "FENNEL_official"]);
+  assert.equal(r.deadline, "2026-11-20T23:59");
+});
+
+test("real: quote with required phrase「〇〇」とコメント", () => {
+  const r = parseCampaign(LAWSON, "akiko_lawson", NOW);
+  assert.ok(r.supported && r.quote && !r.repost);
+  assert.deepEqual(r.follow, ["akiko_lawson"]);
+  assert.deepEqual(r.quoteKeywords, ["ローソン盛りすぎチャレンジ"]);
+  assert.equal(r.theme, null);
+  const { text } = buildQuote({ hashtags: r.quoteHashtags, keywords: r.quoteKeywords, brand: "ローソン" });
+  assert.ok(text.startsWith("ローソン盛りすぎチャレンジ！"));
+  assert.deepEqual(validateQuote(text, r.quoteHashtags, r.quoteKeywords), []);
+});
+
+test("real: Instagram entry is unsupported", () => {
+  const r = parseCampaign(TOSHIBA, "toshiba_life", NOW);
+  assert.ok(!r.supported);
+  assert.ok(r.unsupported[0].includes("Instagram"));
+});
+
+test("quote requirement variants", () => {
+  assert.deepEqual(extractQuoteRequirements("「#推し活」を付けて引用してね").quoteHashtags, ["推し活"]);
+  assert.deepEqual(extractQuoteRequirements("「当たれ！」と入れて引用リポスト").quoteKeywords, ["当たれ!"]);
+  const t = extractQuoteRequirements("あなたの「推しフレーバー」をコメントして引用RT #祭り");
+  assert.deepEqual(t.quoteKeywords, []); // 「〇〇」をコメント はお題
+  assert.ok(t.theme);
+  assert.deepEqual(t.quoteHashtags, ["祭り"]);
+  assert.deepEqual(extractQuoteRequirements("「いいね」と「リポスト」をして、引用で「最高」とひとこと").quoteKeywords, ["最高"]);
+  assert.deepEqual(mentionedHandles(FENNEL), ["hotelloversjp", "FENNEL_official"]);
 });
