@@ -93,6 +93,10 @@ function readTweet(article) {
 }
 
 // ---------------- 応募操作 ----------------
+function findArticle(tweetId) {
+  return [...document.querySelectorAll('article[data-testid="tweet"]')].find((a) => readTweet(a)?.tweetId === tweetId) || null;
+}
+
 async function doLike(article) {
   if ($q(article, '[data-testid="unlike"]')) return "already";
   const btn = $q(article, '[data-testid="like"]');
@@ -112,6 +116,7 @@ async function doRepost(article) {
   return (await waitFor(() => $q(article, '[data-testid="unretweet"]'), 3000)) ? "ok" : "fail";
 }
 
+/** 投稿者のフォロー：ツイートの「…」メニューから */
 async function doFollowAuthor(article, handle) {
   const caret = $q(article, '[data-testid="caret"]');
   if (!caret) return "fail";
@@ -128,6 +133,36 @@ async function doFollowAuthor(article, handle) {
   return "ok";
 }
 
+/** 投稿者以外のフォロー：本文の @リンクからプロフィールを開いてフォローし、元の画面に戻る */
+async function doFollowViaProfile(tweetId, handle) {
+  const a = findArticle(tweetId);
+  const want = "/" + handle.toLowerCase();
+  const link = a && [...a.querySelectorAll('[data-testid="tweetText"] a[href]')].find((x) => (x.getAttribute("href") || "").toLowerCase() === want);
+  if (!link) return "fail";
+  const backTo = location.pathname + location.search;
+  link.click();
+  if (!(await waitFor(() => location.pathname.toLowerCase() === want, 6000))) return "fail";
+  const col = () => document.querySelector('[data-testid="primaryColumn"]') || document.body;
+  const findBtn = (suffix) => [...col().querySelectorAll(`[data-testid$="-${suffix}"]`)].find((b) => !b.closest('[data-testid="UserCell"]'));
+  const btn = await waitFor(() => findBtn("unfollow") || findBtn("follow"), 8000);
+  let r = "fail";
+  if (btn) {
+    if (/-unfollow$/.test(btn.dataset.testid)) r = "already";
+    else {
+      await humanPause();
+      btn.click();
+      r = (await waitFor(() => findBtn("unfollow"), 4000)) ? "ok" : "fail";
+    }
+  }
+  await humanPause();
+  history.back();
+  await waitFor(() => location.pathname + location.search === backTo, 6000);
+  await waitFor(() => findArticle(tweetId), 8000);
+  await sleep(400);
+  return r;
+}
+
+const normSpace = (s) => (s || "").replace(/\s+/g, "");
 async function openQuoteComposer(article, text) {
   const btn = $q(article, '[data-testid="retweet"]') || $q(article, '[data-testid="unretweet"]');
   if (!btn) return "fail";
@@ -138,139 +173,169 @@ async function openQuoteComposer(article, text) {
   quoteItem.click();
   const box = await waitFor(() => document.querySelector('[data-testid="tweetTextarea_0"]'), 6000);
   if (!box) return "fail";
-  box.focus();
-  await sleep(300);
-  const inserted = document.execCommand && document.execCommand("insertText", false, text);
-  await sleep(200);
-  if (!inserted || !box.textContent.includes(text.slice(0, 5))) {
-    try { await navigator.clipboard.writeText(text); } catch { /* 無視 */ }
-    toast("引用文をコピーしました。入力欄に貼り付けてから「ポスト」を押してください", 6000);
-    return "copied";
+  // 入力して、全文が正しく入ったかを確認。だめならやり直し、それでもだめならコピー用に表示
+  for (let attempt = 0; attempt < 2; attempt++) {
+    box.focus();
+    await sleep(300);
+    if (attempt > 0) document.execCommand("selectAll", false);
+    document.execCommand("insertText", false, text);
+    await sleep(300);
+    if (normSpace(box.innerText) === normSpace(text)) return "ok";
   }
-  return "ok";
+  return "manual";
 }
 
-let pendingQuote = null; // {tweetId}
+// ---- 応募の状態（画面の作り直しに左右されないようにメモリに持つ） ----
+const plans = {};     // tweetId -> {follow:[...], like, repost, quote}（手動で選び直した内容）
+const progress = {};  // tweetId -> {steps, extra, btn, disabled, quoteText, v}
+const busy = new Set();
+const keyFollow = (h) => `follow:${h.toLowerCase()}`;
+function isDone(entry, key, author) {
+  if (!entry) return false;
+  if (entry.actions[key]) return true;
+  return !!author && key === keyFollow(author) && !!entry.actions.follow; // 旧バージョンの記録
+}
+function requiredKeys(plan) {
+  return [...plan.follow.map(keyFollow), ...(plan.like ? ["like"] : []), ...(plan.repost ? ["repost"] : []), ...(plan.quote ? ["quote"] : [])];
+}
+function refresh(tweetId) {
+  if (progress[tweetId]) progress[tweetId].v = (progress[tweetId].v || 0) + 1;
+  const a = findArticle(tweetId);
+  if (a) decorate(a);
+}
+function quoteReq(p, text) {
+  return p.quote ? { quoteHashtags: p.quoteHashtags, quoteKeywords: p.quoteKeywords, theme: p.theme } : extractQuoteRequirements(text);
+}
+
+let pendingQuote = null; // tweetId
 document.addEventListener("click", (e) => {
   if (!pendingQuote) return;
   if (e.target.closest('[data-testid="tweetButton"], [data-testid="tweetButtonInline"]')) {
-    const entry = state.entries[pendingQuote.tweetId];
-    if (entry) { entry.actions.quote = localIso(); save(); }
+    const id = pendingQuote;
     pendingQuote = null;
+    const entry = state.entries[id];
+    if (entry) { entry.actions.quote = localIso(); save(); }
+    const pr = progress[id];
+    if (pr) {
+      const s = pr.steps.find((x) => x.key === "quote");
+      if (s) s.r = "ok";
+      if (!pr.steps.some((x) => x.r === "fail")) { pr.btn = "✓ 応募しました"; pr.disabled = true; }
+    }
     toast("引用リポストを記録しました 🎉");
-    setTimeout(scan, 1500);
+    setTimeout(() => refresh(id), 1500);
   }
 }, true);
 
-const busy = new Set(); // 応募処理中のツイートID（処理中は表示を作り直さない）
-const sigOf = (tw) => `${tw.tweetId}:${tw.truncated}:${Object.keys(state.entries[tw.tweetId]?.actions || {}).length}`;
-
-async function enter(article, tw, p, bar) {
-  if (busy.has(tw.tweetId)) return;
-  busy.add(tw.tweetId);
-  try { await enterInner(article, tw, p, bar); } finally {
-    bar.dataset.sig = sigOf(tw);
-    busy.delete(tw.tweetId);
-  }
+async function enter(tw, p) {
+  const id = tw.tweetId;
+  if (busy.has(id)) return;
+  busy.add(id);
+  try { await enterInner(tw, p); } finally { busy.delete(id); refresh(id); }
 }
 
-async function enterInner(article, tw, p, bar) {
+async function enterInner(tw, p) {
+  const id = tw.tweetId;
+  const plan = plans[id];
   const k = counts();
-  if (k.entries >= state.settings.dailyEntryLimit && !state.entries[tw.tweetId]) {
+  if (k.entries >= state.settings.dailyEntryLimit && !state.entries[id]) {
     toast("今日の応募上限に達しました。凍結防止のため明日にしましょう"); return;
   }
-  const entry = state.entries[tw.tweetId] || (state.entries[tw.tweetId] = { at: localIso(), handle: tw.handle, actions: {} });
-  const authorFollow = p.follow.some((h) => h.toLowerCase() === tw.handle.toLowerCase());
-  const otherFollows = p.follow.filter((h) => h.toLowerCase() !== tw.handle.toLowerCase());
-  if (authorFollow && !entry.actions.follow && k.follows >= state.settings.dailyFollowLimit) {
-    toast("今日のフォロー上限に達しました。明日応募しましょう"); return;
+  const entry = state.entries[id] || { at: localIso(), handle: tw.handle, actions: {} };
+  const newFollows = plan.follow.filter((h) => !isDone(entry, keyFollow(h), tw.handle));
+  if (k.follows + newFollows.length > state.settings.dailyFollowLimit) {
+    toast(`今日のフォロー上限（${state.settings.dailyFollowLimit}件）を超えます。明日応募しましょう`); return;
   }
 
   let quoteText = null;
-  if (p.quote && !entry.actions.quote) {
-    const q = buildQuote({ hashtags: p.quoteHashtags, keywords: p.quoteKeywords, brand: tw.authorName, theme: p.theme, recentIds: state.recentTemplateIds });
+  if (plan.quote && !isDone(entry, "quote")) {
+    const req = quoteReq(p, tw.text);
+    const q = buildQuote({ hashtags: req.quoteHashtags, keywords: req.quoteKeywords, brand: tw.authorName, theme: req.theme, recentIds: state.recentTemplateIds });
     quoteText = q.text;
-    if (p.theme) {
-      const ans = prompt(`お題：${p.theme}\n\n回答を短く入力してください（引用文に入ります）`);
+    if (req.theme) {
+      const ans = prompt(`お題：${req.theme}\n\n回答を短く入力してください（引用文に入ります）`);
       if (!ans) { toast("キャンセルしました"); return; }
       quoteText = quoteText.replace(THEME_PLACEHOLDER, ans.trim());
     }
-    const errs = validateQuote(quoteText, p.quoteHashtags, p.quoteKeywords);
+    const errs = validateQuote(quoteText, req.quoteHashtags, req.quoteKeywords);
     if (errs.length) { toast(errs.join(" / ")); return; }
     state.recentTemplateIds = [...state.recentTemplateIds, q.templateId].slice(-6);
   }
+  entry.plan = { ...plan, follow: [...plan.follow] }; // 選んだ操作も保存（再読み込み後の判定用）
+  state.entries[id] = entry;
   save();
 
-  const status = bar.querySelector(".kensho-steps");
-  const btn = bar.querySelector(".kensho-go");
-  btn.disabled = true;
-  btn.textContent = "応募中…";
-  const steps = [];
-  const show = () => { status.innerHTML = steps.map((s) => `<span class="kensho-step ${s.r}">${s.r === "ok" || s.r === "already" ? "✓" : s.r === "fail" ? "✗" : "…"} ${escHtml(s.label)}</span>`).join(""); };
+  const pr = progress[id] = { steps: [], extra: "", btn: "応募中…", disabled: true, quoteText, v: 0 };
+  refresh(id);
   const run = async (key, label, fn) => {
-    if (entry.actions[key]) { steps.push({ label, r: "already" }); show(); return; }
-    const s = { label, r: "run" }; steps.push(s); show();
-    s.r = await fn();
+    if (isDone(entry, key, tw.handle)) { pr.steps.push({ key, label, r: "already" }); refresh(id); return; }
+    const s = { key, label, r: "run" };
+    pr.steps.push(s); refresh(id);
+    const art = findArticle(id);
+    s.r = art ? await fn(art) : "fail";
     if (s.r === "ok" || s.r === "already") {
       entry.actions[key] = localIso();
-      if (key === "follow" && s.r === "ok") state.followLog.push(localIso());
+      if (key.startsWith("follow:") && s.r === "ok") state.followLog.push(localIso());
       save();
     }
-    show();
+    refresh(id);
     await humanPause();
   };
 
-  if (authorFollow) await run("follow", `@${tw.handle} をフォロー`, () => doFollowAuthor(article, tw.handle));
-  if (p.like) await run("like", "いいね", () => doLike(article));
-  if (p.repost) await run("repost", "リポスト", () => doRepost(article));
+  const author = tw.handle.toLowerCase();
+  if (plan.follow.some((h) => h.toLowerCase() === author)) {
+    await run(keyFollow(tw.handle), `@${tw.handle} をフォロー`, (art) => doFollowAuthor(art, tw.handle));
+  }
+  if (plan.like) await run("like", "いいね", (art) => doLike(art));
+  if (plan.repost) await run("repost", "リポスト", (art) => doRepost(art));
+  for (const h of plan.follow.filter((x) => x.toLowerCase() !== author)) {
+    await run(keyFollow(h), `@${h} をフォロー`, () => doFollowViaProfile(id, h));
+  }
   if (quoteText) {
-    steps.push({ label: "引用（内容を確認して「ポスト」を押してください）", r: "run" }); show();
-    const r = await openQuoteComposer(article, quoteText);
-    steps[steps.length - 1].r = r === "fail" ? "fail" : "run";
-    if (r !== "fail") pendingQuote = { tweetId: tw.tweetId };
-    show();
+    const s = { key: "quote", label: "引用（内容を確認して「ポスト」を押す）", r: "run" };
+    pr.steps.push(s); refresh(id);
+    const art = findArticle(id);
+    const r = art ? await openQuoteComposer(art, quoteText) : "fail";
+    if (r === "fail") s.r = "fail";
+    else {
+      pendingQuote = id;
+      if (r === "manual") {
+        pr.extra += `<div class="kensho-note warn">引用文を自動で入力できませんでした。下の「コピー」を押して入力欄に貼り付けてください。</div>`;
+      }
+    }
+  } else if (plan.quote) {
+    pr.steps.push({ key: "quote", label: "引用", r: "already" });
   }
 
-  const failed = steps.filter((s) => s.r === "fail");
-  let extra = "";
-  if (otherFollows.length) {
-    extra += `<div class="kensho-note">ほかのフォロー先（タップして手動でフォロー）：${otherFollows.map((h) =>
-      `<a href="${escHtml(intents.follow(h))}" target="_blank" rel="noopener" data-kensho-follow="${escHtml(h)}">@${escHtml(h)}</a>`).join(" ")}</div>`;
-  }
-  if (failed.length) extra += `<div class="kensho-note warn">✗ の操作は自動でできませんでした。ツイートのボタンから手動で行ってください。</div>`;
-  status.insertAdjacentHTML("beforeend", extra);
-  btn.textContent = failed.length ? "もう一度試す" : "✓ 応募しました";
-  btn.disabled = !failed.length;
+  const failed = pr.steps.filter((s) => s.r === "fail");
+  if (failed.length) pr.extra += `<div class="kensho-note warn">✗ の操作は自動でできませんでした。もう一度試すか、手動で行ってください。</div>`;
+  const quoteWaiting = pr.steps.some((s) => s.key === "quote" && s.r === "run");
+  pr.btn = failed.length ? "もう一度試す" : quoteWaiting ? "引用を投稿すると完了します" : "✓ 応募しました";
+  pr.disabled = !failed.length;
 }
 
-document.addEventListener("click", (e) => {
-  const a = e.target.closest("a[data-kensho-follow]");
-  if (a) { state.followLog.push(localIso()); save(); }
-});
-
 // ---------------- ツイートにボタンを付ける ----------------
+function photoAltText(article) {
+  return [...article.querySelectorAll('[data-testid="tweetPhoto"] img[alt]')]
+    .map((img) => img.alt).filter((t) => t && !/^(画像|Image)$/i.test(t)).join("\n");
+}
+
 function decorate(article) {
   const tw = readTweet(article);
   const old = $q(article, ".kensho-bar");
   if (!tw) { old?.remove(); return; }
-  if (busy.has(tw.tweetId) && old) return;
-  const sig = sigOf(tw);
+  const id = tw.tweetId;
+  const fullText = [tw.text, photoAltText(article)].filter(Boolean).join("\n");
+  const sigNow = () => [id, tw.truncated, Object.keys(state.entries[id]?.actions || {}).length,
+    progress[id]?.v || 0, plans[id] ? JSON.stringify(plans[id]) : ""].join(":");
+  const sig = sigNow();
   if (old && old.dataset.sig === sig) return;
   old?.remove();
 
-  const p = parseCampaign(tw.text, tw.handle);
+  const p = parseCampaign(fullText, tw.handle);
   if (!p.isCampaign) return;
-  const safe = checkSafety(tw.text, tw.handle);
-  const entry = state.entries[tw.tweetId];
-  const need = [
-    ...p.follow.map((h) => `@${h}フォロー`),
-    p.repost && "リポスト", p.like && "いいね", p.quote && "引用",
-  ].filter(Boolean);
-  const required = [
-    ...(p.follow.some((h) => h.toLowerCase() === tw.handle.toLowerCase()) ? ["follow"] : []),
-    ...(p.like ? ["like"] : []), ...(p.repost ? ["repost"] : []), ...(p.quote ? ["quote"] : []),
-  ];
-  const done = entry && required.every((k) => entry.actions[k]);
+  const safe = checkSafety(fullText, tw.handle);
+  const entry = state.entries[id];
+  const pr = progress[id];
 
   const bar = document.createElement("div");
   bar.className = "kensho-bar";
@@ -284,23 +349,70 @@ function decorate(article) {
     html += `<div class="kensho-note warn">⛔ 危険の可能性：${escHtml(safe.reasons.join("、"))}</div>`;
   } else if (tw.truncated) {
     html += `<div class="kensho-note">本文が省略されています。全文で条件を確認します。</div><button class="kensho-btn kensho-more">全文を開く</button>`;
-  } else if (!p.supported) {
-    html += `<div class="kensho-note">対象外：${escHtml(p.unsupported.join("、") || "応募方法を読み取れませんでした")}</div>`;
+  } else if (p.unsupported.length) {
+    html += `<div class="kensho-note">対象外：${escHtml(p.unsupported.join("、"))}</div>`;
   } else if (p.deadline && p.deadline < localIso()) {
     html += `<div class="kensho-note">締切を過ぎています</div>`;
   } else {
-    html += `<div class="kensho-note">必要：${escHtml(need.join(" ・ "))}${p.quoteHashtags.length ? ` ／ 指定：${escHtml("#" + p.quoteHashtags.join(" #"))}` : ""}</div>`;
+    const saved = entry?.plan;
+    const plan = plans[id] || (plans[id] = saved ? { ...saved, follow: [...saved.follow] } : { follow: [...p.follow], like: p.like, repost: p.repost, quote: p.quote });
+    const keys = requiredKeys(plan);
+    const done = keys.length > 0 && keys.every((key) => isDone(entry, key, tw.handle));
+    if (!p.supported) {
+      html += `<div class="kensho-note warn">本文から応募方法を読み取れませんでした。画像などに条件が書かれている場合は、下から必要な操作を選んでください。</div>`;
+    }
+    // 必要な操作（タップで選び直せる）
+    const handles = [...new Set([tw.handle, ...mentionedHandles(tw.text), ...plan.follow].map((h) => h))]
+      .filter((h, i, arr) => arr.findIndex((x) => x.toLowerCase() === h.toLowerCase()) === i);
+    const chip = (key, label, on) => `<button class="kensho-chip ${on ? "on" : ""}" data-chip="${escHtml(key)}">${on ? "✓ " : ""}${escHtml(label)}</button>`;
+    html += `<div class="kensho-note">必要な操作（タップで変更）</div><div class="kensho-chips">`;
+    html += handles.map((h) => chip(`follow:${h}`, `@${h} フォロー`, plan.follow.some((x) => x.toLowerCase() === h.toLowerCase()))).join("");
+    html += chip("like", "いいね", plan.like) + chip("repost", "リポスト", plan.repost) + chip("quote", "引用", plan.quote);
+    html += `</div>`;
+    if (plan.quote) {
+      const req = quoteReq(p, fullText);
+      const must = [...req.quoteKeywords.map((x) => `「${x}」`), ...req.quoteHashtags.map((x) => `#${x}`)];
+      html += `<div class="kensho-note">引用文に入れる言葉：${must.length ? escHtml(must.join(" ")) : "指定なし"}${req.theme ? `<br>お題：${escHtml(req.theme)}` : ""}</div>`;
+    }
     if (!tw.verified && safe.reasons.length > 1) html += `<div class="kensho-note warn">${escHtml(safe.reasons[1])}</div>`;
-    html += done
-      ? `<button class="kensho-btn kensho-go" disabled>✓ 応募済み</button>`
-      : `<button class="kensho-btn kensho-go">応募する</button>`;
-    html += `<div class="kensho-steps"></div>`;
+    if (pr) {
+      html += `<button class="kensho-btn kensho-go" ${pr.disabled ? "disabled" : ""}>${escHtml(pr.btn)}</button>`;
+      html += `<div class="kensho-steps">${pr.steps.map((s) => `<span class="kensho-step ${s.r}">${s.r === "ok" || s.r === "already" ? "✓" : s.r === "fail" ? "✗" : "…"} ${escHtml(s.label)}</span>`).join("")}</div>`;
+      html += pr.extra;
+      if (pr.quoteText && !isDone(entry, "quote")) {
+        html += `<div class="kensho-quote"><div>${escHtml(pr.quoteText)}</div><button class="kensho-copy">コピー</button></div>`;
+      }
+    } else if (done) {
+      html += `<button class="kensho-btn kensho-go" disabled>✓ 応募済み</button>`;
+    } else {
+      html += `<button class="kensho-btn kensho-go" ${keys.length ? "" : "disabled"}>${keys.length ? "応募する" : "必要な操作を選んでください"}</button>`;
+    }
   }
   bar.innerHTML = html;
+  bar.dataset.sig = sigNow(); // 初回に plans[id] を作った分を反映
   bar.addEventListener("click", (e) => {
     e.stopPropagation(); // ツイート詳細へ移動しないように
-    if (e.target.closest(".kensho-go") && !e.target.disabled) { e.preventDefault(); enter(article, tw, p, bar); }
+    const chipEl = e.target.closest(".kensho-chip");
+    if (chipEl && !busy.has(id)) {
+      e.preventDefault();
+      const plan = plans[id];
+      const key = chipEl.dataset.chip;
+      if (key.startsWith("follow:")) {
+        const h = key.slice(7);
+        const has = plan.follow.some((x) => x.toLowerCase() === h.toLowerCase());
+        plan.follow = has ? plan.follow.filter((x) => x.toLowerCase() !== h.toLowerCase()) : [...plan.follow, h];
+      } else plan[key] = !plan[key];
+      if (progress[id] && !busy.has(id)) delete progress[id];
+      decorate(article);
+      return;
+    }
+    const go = e.target.closest(".kensho-go");
+    if (go && !go.disabled) { e.preventDefault(); enter(tw, p); }
     if (e.target.closest(".kensho-more")) { e.preventDefault(); $q(article, '[data-testid="tweet-text-show-more-link"]')?.click(); }
+    if (e.target.closest(".kensho-copy")) {
+      e.preventDefault();
+      navigator.clipboard?.writeText(progress[id]?.quoteText || "").then(() => toast("コピーしました"), () => toast("コピーできませんでした。文を長押ししてコピーしてください"));
+    }
   });
   const textEl = $q(article, '[data-testid="tweetText"]');
   textEl.insertAdjacentElement("afterend", bar);
@@ -376,7 +488,12 @@ style.textContent = `
 .kensho-step{font-size:12px;padding:2px 8px;border-radius:999px;background:#eee}
 .kensho-step.ok,.kensho-step.already{background:#e8f5e9;color:#1b5e20}
 .kensho-step.fail{background:#fdecea;color:#b71c1c}
-.kensho-fab{position:fixed;left:12px;bottom:90px;z-index:9999;width:48px;height:48px;border-radius:50%;border:none;background:#ff9800;font-size:24px;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+.kensho-chips{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0}
+.kensho-chip{border:1px solid #bbb;background:#fff;color:#555;border-radius:999px;padding:4px 10px;font-size:13px}
+.kensho-chip.on{background:#1d9bf0;border-color:#1d9bf0;color:#fff}
+.kensho-quote{margin-top:6px;padding:8px;background:#fff;border:1px dashed #ffb74d;border-radius:8px;font-size:13px;user-select:text;-webkit-user-select:text}
+.kensho-copy{margin-top:4px;border:none;background:#ff9800;color:#fff;border-radius:999px;padding:4px 12px;font-size:13px}
+.kensho-fab{position:fixed;left:8px;bottom:120px;z-index:9999;width:40px;height:40px;border-radius:50%;border:none;background:#ff9800;font-size:20px;opacity:.85;box-shadow:0 2px 8px rgba(0,0,0,.3)}
 .kensho-panel{position:fixed;left:8px;right:8px;bottom:150px;z-index:10000;max-height:70vh;overflow:auto;background:#fff;color:#1f2328;border-radius:16px;padding:14px;box-shadow:0 4px 20px rgba(0,0,0,.35);font-size:14px}
 .kensho-panel label{display:block;margin-top:8px}
 .kensho-panel input,.kensho-panel textarea{width:100%;box-sizing:border-box;font-size:16px;padding:6px;border:1px solid #ccc;border-radius:8px}
